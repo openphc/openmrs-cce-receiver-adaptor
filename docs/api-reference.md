@@ -171,7 +171,7 @@ The adaptor returns one of the following status codes based on the per-resource 
 
 > **Status:** Built (demo), off by default. Full design, samples and settings: [beckn-integration.md](beckn-integration.md).
 
-Two endpoints, present only when `OPENMRS_RECEIVER_BECKN_ENABLED=true` (`receiver.beckn.enabled`). With it off they answer 404. They are called by the `openmrs-onix` adapter containers, which have already checked the Beckn signature and the schema. No bearer token is checked: the paths are outside the `/api/**` filter. The body is a full Beckn message; each performance entry carries one FHIR resource in a `CceClinicalEvent` box.
+Two endpoints, present only when `OPENMRS_RECEIVER_BECKN_ENABLED=true` (`receiver.beckn.enabled`). With it off they answer 404. They are called by the `openmrs-onix` adapter containers, which have already checked the Beckn signature and the schema. No bearer token is checked: the paths are outside the `/api/**` filter. The body is a full Beckn message; each performance entry carries one FHIR resource in a `sygnal:CoordinationEvent` box with an `@context` (schema `CoordinationEvent/v3.0`; until 2026-11-23 a `cce:CceClinicalEvent` box). The adaptor reads only `performanceAttributes.resource`.
 
 The existing `POST /api/v1/openmrs/fhir` endpoint is unchanged.
 
@@ -236,7 +236,7 @@ Called by `onix-bap`. Callbacks for messages the emitter sent.
 
 A CCE care alert, sent by `cce-beckn-service` as a Sygnal `sygnal/signal/emit` and forwarded by `onix-openmrs` (which has already checked the signature and the schema). Present only when `OPENMRS_RECEIVER_BECKN_ENABLED=true`; with it off it answers 404. No bearer token is checked: the path is outside the `/api/**` filter. CCE care alerts no longer arrive as `on_status` on `/beckn/bap-webhook`.
 
-The body is a full Sygnal message: `context` with `action` `sygnal/signal/emit`, `senderId` = `receiver.beckn.cce.id`, `receiverId` = `receiver.beckn.self.id`; `message` is the care alert itself, a `cce:CceCareAlert` (`@context`, `@type`, `patientId`, `severity`, `stepStatus`, optional `slaStatus`, `fhirVersion`, `resource` = FHIR `CommunicationRequest` or `Task`). Since 2026-11-23 it is no longer a `sygnal:Signal` with a `signalAttributes` bag; that shape is refused.
+The body is a full Sygnal message: `context` with `action` `sygnal/signal/emit`, `senderId` = `receiver.beckn.cce.id`, `receiverId` = `receiver.beckn.self.id`; `message` is a `sygnal:Signal` with the care-alert fields directly on it (`@type`, `id` = the delivery id = `context.messageId`, `signalType`, `target`, `basis`, `issuedAt`, `cceSeverity` = CCE's `LOW` / `MEDIUM` / `HIGH` / `CRITICAL`, `patientId`, `stepStatus`, optional `slaStatus`, `fhirVersion`, `resource` = FHIR `CommunicationRequest` or `Task`). This is CCE's Sygnal profile v3.0, in use since 2026-11-23; since 2026-11-24 CCE's own level is only in `cceSeverity`, and CCE does not send Sygnal's `severity` (Sygnal does not require it; if another sender includes it, it must be one of Sygnal's `INFO` / `WARNING` / `CRITICAL`). The notification severity comes only from `cceSeverity` (`LOW` → `INFO`, `MEDIUM` / `HIGH` → `WARNING`, `CRITICAL` → `CRITICAL`); `message.severity` and a `signalAttributes` bag are not read. Without `cceSeverity` it is `INFO`. A `cce:CceCareAlert` message (profile v2.0) and a Signal with the alert only in a `signalAttributes` bag (profile v1.0) are refused. Unknown extra fields are ignored.
 
 The answer is synchronous (Sygnal has no callbacks) and keeps the request's `context.messageId`:
 
@@ -256,8 +256,8 @@ The answer is synchronous (Sygnal has no callbacks) and keeps the request's `con
 | 400 | `CTX_MISSING_FIELD` | `context`, `action`, `senderId`, `receiverId` or `messageId` missing |
 | 400 | `CTX_ACTION_MISMATCH` | `context.action` is not `sygnal/signal/emit` |
 | 400 | `CTX_INVALID_FIELD` | `receiverId` is not OpenMRS's id, or `senderId` is not CCE's |
-| 400 | `SCH_TYPE_NOT_SUPPORTED` | `message.@type` is not `cce:CceCareAlert` (the earlier `sygnal:Signal` included) |
-| 400 | `SCH_REQUIRED_FIELD_MISSING` | `message`, `message.patientId` or `message.resource.resourceType` missing |
+| 400 | `SCH_TYPE_NOT_SUPPORTED` | `message.@type` is not `sygnal:Signal` (the `cce:CceCareAlert` of profile v2.0 included) |
+| 400 | `SCH_REQUIRED_FIELD_MISSING` | `message`, `message.id`, `message.patientId` or `message.resource.resourceType` missing (a Signal with the alert only in `signalAttributes` has no `patientId`) |
 | 503 | `NET_INTERNAL_ERROR` | The notification queue is full. Send again later |
 | 500 | `NET_INTERNAL_ERROR` | Unexpected error. Send again later |
 
